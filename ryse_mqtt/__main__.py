@@ -1,14 +1,15 @@
 import asyncio
 import configparser
-import socket
-import json
 import sys
 
-import asyncio_mqtt as aiomqtt
+import aiomqtt
 
 from ble_gatt import Device
 from ha_helper import HAHelper
 
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class RyseMqtt(object):
     def __init__(self, config):
@@ -25,7 +26,7 @@ class RyseMqtt(object):
         async with aiomqtt.Client(**self.config['mqtt']) as mqtt_client:
             while True:
                 address, event = await self.queue.get()
-                print("Got BT message", address, event)
+                logging.info("Got BT message: %s, %s", address, event)
                 self.queue.task_done()
                 if event == "discover":
                     await mqtt_client.publish(self.ha.discovery_topic(address), self.ha.discovery_payload(address, self.address_name_map[address]))
@@ -37,23 +38,27 @@ class RyseMqtt(object):
                     await mqtt_client.publish(self.ha.state_topic(address), event)
 
     async def listen(self):
-        async with aiomqtt.Client(**self.config['mqtt']) as client:
-            async with client.messages() as messages:
-                await client.subscribe("ryse/+/+/set_position")
-                await client.subscribe("ryse/+/+/set")
-                async for message in messages:
-                    for device in self.devices:
-                        if device.address in str(message.topic):
-                            try:
-                                await device.cmd(int(message.payload.decode('utf-8')))
-                            except Exception as e:
-                                pass
-
+        while True:
+            try:
+                async with aiomqtt.Client(**self.config['mqtt'], ) as client:
+                    await client.subscribe("ryse/+/+/set_position")
+                    await client.subscribe("ryse/+/+/set")
+                    async for message in client.messages:
+                        for device in self.devices:
+                            if device.address in str(message.topic):
+                                try:
+                                    await device.cmd(int(message.payload.decode('utf-8')))
+                                except Exception as e:
+                                    pass
+            except aiomqtt.exceptions.MqttCodeError as e:
+                logging.error(f"MQTT connection lost: {e}")
+                logging.info("Attempting to reconnect in 5 seconds...")
+                await asyncio.sleep(5)  # Wait before trying to reconnect
     def run(self):
         loop = asyncio.get_event_loop()
         try:
             bt_tasks = []
-            print(self.devices)
+            logging.info("Found BT Devices: %s", self.devices)
             mqtt = loop.create_task(self.listen())
             for device in self.devices:
                bt_tasks.append(loop.create_task(device.connection_loop()))
@@ -64,9 +69,9 @@ class RyseMqtt(object):
             loop.run_until_complete(tasks)
         except:
             import traceback
-            traceback.print_exc()
+            logging.error(traceback.print_exc())
             loop.create_task(
-                evice.client.disconnect() 
+                device.client.disconnect() 
                 for device in self.devices
                 if device.client.is_connected
             )

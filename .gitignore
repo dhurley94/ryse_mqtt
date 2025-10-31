@@ -1,0 +1,4 @@
+*.bak
+*.cpython*
+config.conf
+ryse.log
