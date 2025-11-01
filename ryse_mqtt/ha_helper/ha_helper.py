@@ -12,7 +12,7 @@ class HAHelper(object):
         self.name = device_name
         self.component = "cover"
         self.topic_prefix = "ryse"
-
+    
     def discovery_topic(self, mac):
         return f"{self.discovery_prefix}/{self.component}/{mac.replace(':','_')}/{self.name}/config"
 
@@ -33,25 +33,24 @@ class HAHelper(object):
 
     def discovery_payload(self, mac, friendly_name):
         device = {
-            "identifiers": self.name,
+            "identifiers": [f"{self.name}_{mac.replace(':','_')}"],
             "name": "Ryse MQTT",
+            "manufacturer": "RYSE",
+            "model": "SmartShade",
             "sw_version": "0.0.2",
         }
         payload = {
             "name": friendly_name,
+            "unique_id": f"{mac.replace(':','_')}",
+            "device_class": "shade",
             "command_topic": self.command_topic(mac),
             "position_topic": self.position_topic(mac),
             "state_topic": self.state_topic(mac),
-            "availability": {
-                "topic": self.availability_topic(mac),
-            },
+            "availability_topic": self.availability_topic(mac),
             "set_position_topic": self.set_position_topic(mac),
-            "qos": 0,
-            "retain": True,
             "payload_open": "100",
             "invert_openclose_buttons": True,
-            "payload_close": "0",
-            "unique_id": mac,
+            "payload_close": "10",
             "position_open": 100,
             "state_closed": "CLOSED",
             "state_open": "OPEN",

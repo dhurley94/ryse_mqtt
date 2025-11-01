@@ -11,12 +11,15 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+logger = logging.getLogger("ryse_mqtt")
+
 class RyseMqtt(object):
     def __init__(self, config):
         self.queue = asyncio.Queue()
         self.config = config
         self.ha = HAHelper(**config['home_assistant'])
         self.devices = []
+        self.last_availability_event = ""
         self.address_name_map = {}
         for friendly_name, address in config['ryse'].items():
             self.devices.append(Device(address, self.queue, config['fast'].get(friendly_name)))
@@ -26,12 +29,13 @@ class RyseMqtt(object):
         async with aiomqtt.Client(**self.config['mqtt']) as mqtt_client:
             while True:
                 address, event = await self.queue.get()
-                logging.info("Got BT message: %s, %s", address, event)
+                logger.info("Got BT message: %s, %s", address, event)
                 self.queue.task_done()
                 if event == "discover":
                     await mqtt_client.publish(self.ha.discovery_topic(address), self.ha.discovery_payload(address, self.address_name_map[address]))
                 elif event in ("online", "offline"):
-                    await mqtt_client.publish(self.ha.availability_topic(address), event)
+                    if self.last_availability_event != event:
+                        await mqtt_client.publish(self.ha.availability_topic(address), event)
                 elif isinstance(event, int):
                     await mqtt_client.publish(self.ha.position_topic(address), event)
                 else:
@@ -51,14 +55,14 @@ class RyseMqtt(object):
                                 except Exception as e:
                                     pass
             except aiomqtt.exceptions.MqttCodeError as e:
-                logging.error(f"MQTT connection lost: {e}")
-                logging.info("Attempting to reconnect in 5 seconds...")
+                logger.error(f"MQTT connection lost: {e}")
+                logger.info("Attempting to reconnect in 5 seconds...")
                 await asyncio.sleep(5)  # Wait before trying to reconnect
     def run(self):
         loop = asyncio.get_event_loop()
         try:
             bt_tasks = []
-            logging.info("Found BT Devices: %s", self.devices)
+            logger.info("Found BT Devices: %s", self.devices)
             mqtt = loop.create_task(self.listen())
             for device in self.devices:
                bt_tasks.append(loop.create_task(device.connection_loop()))
@@ -69,7 +73,7 @@ class RyseMqtt(object):
             loop.run_until_complete(tasks)
         except:
             import traceback
-            logging.error(traceback.print_exc())
+            logger.error(traceback.print_exc())
             loop.create_task(
                 device.client.disconnect() 
                 for device in self.devices

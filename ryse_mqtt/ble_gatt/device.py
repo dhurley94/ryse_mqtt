@@ -4,6 +4,12 @@ from bleak import BleakClient
 from bleak import BleakScanner
 from bleak import BleakGATTCharacteristic
 
+import logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+logger = logging.getLogger("ryse_mqtt")
+
 bluez_lock = asyncio.Lock()
 
 class Device(object):
@@ -15,6 +21,7 @@ class Device(object):
         self.client = BleakClient(self.address, disconnected_callback=self.on_disconnect)
         self.state = "STOPPED"
         self.position = 0
+        self.moving = False
         self.tx = "a72f2802-b0bd-498b-b4cd-4a3901388238"
         self.rx = "a72f2801-b0bd-498b-b4cd-4a3901388238"
 
@@ -23,7 +30,7 @@ class Device(object):
 
     def update_state(self, value):
         for b in value:
-            print(b, end=' ')
+            logger.debug("%s:%s", b, self.state)
         
         if (int(value[5]) == 0):
             self.moving = False
@@ -48,7 +55,7 @@ class Device(object):
             self.queue.put_nowait((self.address, self.position))
 
     def on_disconnect(self, client):
-        print('Disconnected')
+        logger.info('Disconnected')
         self.queue.put_nowait((self.address, "offline"))
 
 
@@ -80,9 +87,5 @@ class Device(object):
                 else:
                     await asyncio.sleep(1.0)
             except Exception as e:
-                print(e)
+                logger.error("%s:%s", self.address, e)
                 await asyncio.sleep(1.0)
-
-
-
-    
