@@ -1,12 +1,8 @@
 import asyncio
 
 from bleak import BleakClient
-from bleak import BleakScanner
-from bleak import BleakGATTCharacteristic
 
 import logging
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logger = logging.getLogger("ryse_mqtt")
 
@@ -31,22 +27,28 @@ class Device(object):
     def update_state(self, value):
         for b in value:
             logger.debug("%s:%s", b, self.state)
-        
-        if (int(value[5]) == 0):
-            self.moving = False
-        if (int(value[5]) == 1):
+
+        # Update position (inverted: 0 = fully open, 100 = fully closed)
+        position_raw = int(value[4])
+        self.position = 100 - position_raw
+
+        # Determine movement and state based on value[5]
+        movement = int(value[5])
+        if movement == 1:
+            self.moving = True
             self.state = "OPENING"
+        elif movement == 2:
             self.moving = True
-        if (int(value[5]) == 2):
             self.state = "CLOSING"
-            self.moving = True
-        if not self.moving:
-            self.state = "STOPPED"
-        if not self.moving and int(value[4]) == 0:
-            self.state = "OPEN"
-        if not self.moving and int(value[4]) == 100:
-            self.state = "CLOSED"
-        self.position = 100 - int(value[4])
+        else:  # movement == 0
+            self.moving = False
+            # Set state based on position when not moving
+            if position_raw == 0:
+                self.state = "OPEN"
+            elif position_raw == 100:
+                self.state = "CLOSED"
+            else:
+                self.state = "STOPPED"
 
     def callback(self, sender, data: bytearray):
         self.update_state(data)
@@ -69,8 +71,7 @@ class Device(object):
         if not self.client.is_connected:
             async with bluez_lock:
                 await self.client.connect()
-            self.connected = self.client.is_connected
-            if self.connected:
+            if self.client.is_connected:
                 await self.queue.put((self.address, "online"))
 
             self.callback(self.rx, await self.client.read_gatt_char(self.rx))
